@@ -1,0 +1,10 @@
+[package]
+name = "ActixDesde0"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-multipart = "0.7.2"
+actix-web = "4.9.0"
+futures-util = "0.3.30"
+serde = { version = "1.0.209", features = ["derive"] }
