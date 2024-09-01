@@ -188,7 +188,7 @@ async fn autor() -> HttpResponse {
 Para lograr esto tenemos que agregar a nuestro formulario de html el atributo `enctype='multipart/form-data'` e instalar unas dependencias a nuestro proyecto
 
 ```html
-<form action='subir-archivo' method='post' enctype='multipart/form-data'>
+<form action="subir-archivo" method="post" enctype="multipart/form-data"></form>
 ```
 
 ```sh
@@ -272,7 +272,7 @@ async fn subir_archivos(
 
 Y en nuestro HttpClient hariamos algo asi:
 
-![Insomnia]("./public/multipart_files.png")
+![Subir archivos con mas información](./public/multipart_files.png)
 
 El "problema" que tiene esto es que `MultipartForm` tiene un limite de subida, por defecto son `50mb` en total, si se manda más de `50mb` totales te dara un error donde se dice que se excedio el limite de memoria (error 400).
 
@@ -303,4 +303,3 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 ```
-
