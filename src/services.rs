@@ -23,6 +23,12 @@ struct Article {
 }
 
 #[derive(Deserialize)]
+pub struct CreateUserBody {
+    name: String,
+    last_name: String,
+}
+
+#[derive(Deserialize)]
 pub struct CreateArticleBody {
     pub title: String,
     pub content: String,
@@ -36,6 +42,21 @@ async fn fetch_users(state: Data<AppState>) -> impl Responder {
     {
         Ok(users) => HttpResponse::Ok().json(users),
         Err(_) => HttpResponse::NotFound().json("No users found"),
+    }
+}
+
+#[post("/users")]
+async fn create_user(state: Data<AppState>, body: Json<CreateUserBody>) -> impl Responder {
+    match sqlx::query_as::<_, User>(
+        "INSERT INTO users (name, last_name) VALUES ($1, $2) RETURNING id, name, last_name",
+    )
+    .bind(body.name.to_string())
+    .bind(body.last_name.to_string())
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(users) => HttpResponse::Ok().json(users),
+        Err(_) => HttpResponse::InternalServerError().json("Error to create a new user"),
     }
 }
 

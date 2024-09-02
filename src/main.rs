@@ -2,7 +2,7 @@ use actix_web::{web::Data, App, HttpServer};
 use dotenv::dotenv;
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 mod services;
-use services::{create_user_article, fetch_user_articles, fetch_users};
+use services::{create_user_article, fetch_user_articles, fetch_users, create_user};
 
 pub struct AppState {
     db: Pool<Sqlite>,
@@ -22,6 +22,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(AppState { db: pool.clone() }))
+            .service(create_user)
             .service(fetch_users)
             .service(fetch_user_articles)
             .service(create_user_article)

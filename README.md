@@ -484,7 +484,7 @@ use actix_web::{web::Data, App, HttpServer};
 use dotenv::dotenv;
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 mod services;
-use services::{create_user_article, fetch_user_articles, fetch_users};
+use services::{create_user_article, fetch_user_articles, fetch_users, create_user};
 
 pub struct AppState {
     db: Pool<Sqlite>,
@@ -504,6 +504,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(AppState { db: pool.clone() }))
+            .service(create_user)
             .service(fetch_users)
             .service(fetch_user_articles)
             .service(create_user_article)
@@ -543,6 +544,12 @@ struct Article {
 }
 
 #[derive(Deserialize)]
+pub struct CreateUserBody {
+    name: String,
+    last_name: String,
+}
+
+#[derive(Deserialize)]
 pub struct CreateArticleBody {
     pub title: String,
     pub content: String,
@@ -556,6 +563,21 @@ async fn fetch_users(state: Data<AppState>) -> impl Responder {
     {
         Ok(users) => HttpResponse::Ok().json(users),
         Err(_) => HttpResponse::NotFound().json("No users found"),
+    }
+}
+
+#[post("/users")]
+async fn create_user(state: Data<AppState>, body: Json<CreateUserBody>) -> impl Responder {
+    match sqlx::query_as::<_, User>(
+        "INSERT INTO users (name, last_name) VALUES ($1, $2) RETURNING id, name, last_name",
+    )
+    .bind(body.name.to_string())
+    .bind(body.last_name.to_string())
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(users) => HttpResponse::Ok().json(users),
+        Err(_) => HttpResponse::InternalServerError().json("Error to create a new user"),
     }
 }
 
@@ -595,6 +617,43 @@ async fn create_user_article(
     }
 }
 ```
+
+Una vez tengamos esto, tenemos que darle las tablas a nuestra base de datos, esto lo hacemos creando las migraciones:
+
+```sh
+sqlx migrate add create_users_table
+sqlx migrate add create_articles_table
+```
+
+Dentro de los archivos `.sql` que se nos generarón pondremos el código `sql` para crear nuestras tablas.
+
+```sql
+-- migrations/create_users_table.sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  last_name TEXT NOT NULL
+)
+```
+
+```sql
+-- migrations/create_articles_table.sql
+CREATE TABLE articles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_by INTEGER,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+)
+```
+
+Luego de ya tener nuestras migraciones listas, hay que ejecutarlas:
+
+```sh
+sqlx migrate run
+```
+
+Ahora si podemos usar nuestro HttpCient para empezar a probar nuestra API
 
 <!-- WIP -->
 
