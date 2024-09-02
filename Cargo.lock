@@ -7,6 +7,7 @@ name = "ActixDesde0"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "actix-web-httpauth",
  "dotenv",
  "serde",
  "sqlx",
@@ -193,6 +194,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "actix-web-httpauth"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "456348ed9dcd72a13a1f4a660449fafdecee9ac8205552e286809eb5b0b29bd3"
+dependencies = [
+ "actix-utils",
+ "actix-web",
+ "base64",
+ "futures-core",
+ "futures-util",
+ "log",
+ "pin-project-lite",
 ]
 
 [[package]]

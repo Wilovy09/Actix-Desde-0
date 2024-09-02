@@ -56,7 +56,7 @@ async fn test() -> HttpResponse {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| App::new().service(test))
-        .bind(("127.0.1", 8080))?
+        .bind(("127.0.0.1", 8080))?
         .run()
         .await
 }
@@ -653,8 +653,208 @@ Luego de ya tener nuestras migraciones listas, hay que ejecutarlas:
 sqlx migrate run
 ```
 
-Ahora si podemos usar nuestro HttpCient para empezar a probar nuestra API
+Ahora si podemos usar nuestro HttpCient para empezar a probar nuestra API.
 
-<!-- WIP -->
+## Seguridad en API
 
-## Seguridad en API (WIP)
+```sh
+cargo add actix-web
+```
+
+### Basic Auth
+
+> [!WARNING]
+> Esta forma de autenticar, no es recomendada para producción.
+
+```sh
+cargo add actix-web-httpauth
+```
+
+Creamos una estructura básica para la API con 2 rutas:
+
+```rust
+use actix_web::{get, App, Error, HttpResponse, HttpServer};
+
+#[get("/publico")]
+async fn publico() -> HttpResponse {
+    HttpResponse::Ok().body("Info publica")
+}
+
+#[get("/privado")]
+async fn privada() -> HttpResponse {
+    HttpResponse::Ok().body("Info privada")
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(publico).service(privada))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
+
+Si hacemos una consulta a nuestra ruta `/privada` cuando no queremos esto, asi que tenemos que añadir lo siguiente:
+
+```rust
+// agregamos estas importaciones
+use actix_web_httpauth::{
+    extractors::{
+        basic::{self, BasicAuth},
+        AuthenticationError,
+    },
+    headers::www_authenticate,
+};
+```
+
+Ahora a nuestra función `main()` agregamos un `.app_data()`
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            // Aqui definimos AppData
+            .app_data(basic::Config::default().realm("privado"))
+            .service(publico)
+            .service(privada)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Ahora tenemos que modificar la función `privaeda()` que es a la queremos quitarle el acceso "publico"
+
+```rust
+#[get("/privado")]
+// Agregamos auth: BasicAuth a los parametros de nuestra func
+//                  Regresamos un resultado HttpResponse o Error
+async fn privada(auth: BasicAuth) -> Result<HttpResponse, Error> {
+    Ok(HttpResponse::Ok().body("Info privada"))
+}
+
+```
+
+Pero lo que tenemos actualmente acepta cualquier nombre y contraseña no ninguno en especifico, si queremos eso, tenemos que hacer lo siguiente.
+
+```rust
+#[get("/privado")]
+async fn privada(auth: BasicAuth) -> Result<HttpResponse, Error> {
+    // accedemos al usuario/constraseña y los comparamos con algun valor
+    if auth.user_id() == "Wilovy" && auth.password().unwrap() == "Test12345." {
+        Ok(HttpResponse::Ok().body("Info privada"))
+    } else {
+        // Basic Auth te limita a solo regresar errores 401
+        Err(AuthenticationError::new(www_authenticate::basic::Basic::default()).into())
+    }
+}
+```
+
+Pero que pasa si tenemos más de 1 endpoint que queremos proteger? no es muy viable tener que estar poniendo `if/else` en cada ruta que queremos protejer:
+
+```rust
+if auth.user_id() == "Wilovy" && auth.password().unwrap() == "Test12345." {
+    Ok(HttpResponse::Ok().body("Info privada"))
+} else {
+    Err(AuthenticationError::new(www_authenticate::basic::Basic::default()).into())
+}
+```
+
+Para facilitarnos estas protecciones multiples crearemos un `middleware`.
+
+Con actix-web podemos crear middlewares desde 0, sin embargo con `actix-httpauth` ya nos da unos middlewares hechos.
+
+```rust
+use actix_web::{dev::ServiceRequest, get, App, Error, HttpResponse, HttpServer};
+use actix_web_httpauth::middleware::HttpAuthentication;
+```
+
+Ahora creamos nuestra función que actuara como middleware
+
+```rust
+async fn validador(
+    req: ServiceRequest,
+    auth: BasicAuth,
+) -> Result<ServiceRequest, (Error, ServiceRequest)> {
+    if auth.user_id() == "Wilovy" && auth.password().unwrap() == "Test12345." {
+        Ok(req)
+    } else {
+        Err((
+            AuthenticationError::new(www_authenticate::basic::Basic::default()).into(),
+            req,
+        ))
+    }
+}
+```
+
+Ahora en nuestra función registramos nuestro validador:
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        // Creamos una variable que funcionara como middleware
+        let auth = HttpAuthentication::basic(validador);
+        App::new()
+            .app_data(basic::Config::default().realm("privado"))
+            // Le pasamos el middleware a la app
+            .wrap(auth)
+            .service(publico)
+            .service(privada)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Creamos y servimos una nueva ruta:
+
+```rust
+#[get("/confidencial")]
+async fn confidencial() -> Result<HttpResponse, Error> {
+    Ok(HttpResponse::Ok().body("Info confidencial"))
+}
+```
+
+Ahora si nos fijamos, todas nuestras rutas necesitan la verificación, incluyendo nuestra ruta `/publico` cuando no queremos que esto sea asi, ya que nuestra ruta publica deberia ser publica sin la necesidad de un inicio de sesión (basic auth).
+
+Para lograr esto.
+
+1. Importamos `web`
+
+```rust
+use actix_web::{dev::ServiceRequest, get, web, /* ... */}
+```
+
+2. Agregamos un `scope` y le añadimos el middleware
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::basic(validador);
+        App::new()
+            // Creamos un servicio
+            .service(
+                // Creamos un scope con el prefijo `/admin`
+                web::scope("/admin")
+                    // Montamos el middleware
+                    .wrap(auth)
+                    // Servimos nuestras rutas
+                    // `/admin/privada`
+                    .service(privada)
+                    // `/admin/confidencial`
+                    .service(confidencial),
+            )
+            .app_data(basic::Config::default().realm("privado"))
+            // Dejamos la ruta `/publico` feura del scope para que no tenga el middleware
+            .service(publico)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
