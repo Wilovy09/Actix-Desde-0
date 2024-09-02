@@ -1,5 +1,71 @@
 # Notas Actix
 
+## Como leer variables de un `.env`
+
+Instalamos un paquete `dotenv`
+
+```sh
+cargo add dotenv
+```
+
+Creamos un archivo `.env` y definimos algunas variables en el
+
+```env
+URL=https://www.wilovy.com
+NOMBRE=Wilovy
+```
+
+Ahora en nuestro `main.rs` pondremos lo siguiente:
+
+```rust
+use dotenv::dotenv; // esto es el paquete que instalamos
+use std::env;
+
+fn main() {
+    dotenv().ok();
+
+    let nombre = env::var("NOMBRE").expect("Falta NOMBRE");
+    let url = env::var("URL").expect("Falta URL");
+
+    println!("Nombre: {}, URL: {}", nombre, url)
+}
+```
+
+## Estructura básica para iniciar una API
+
+```sh
+cargo install cargo-watch
+```
+
+```rust
+use actix_web::{get, http::header, App, HttpResponse, HttpServer};
+
+#[get("/")]
+async fn test() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type(header::ContentType::json())
+        .body(
+            r#"
+    {
+        "ok": "ok"
+    }
+    "#,
+        )
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(test))
+        .bind(("127.0.1", 8080))?
+        .run()
+        .await
+}
+```
+
+```sh
+cargo watch -x run
+```
+
 ## Parametros con struct
 
 ```rust
@@ -303,3 +369,233 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 ```
+
+## Archivos estáticos y descargar archivos
+
+Pra poder trabajar con archivos estaticos tenemos que instalar un paquete.
+
+```sh
+cargo add actix-files
+```
+
+Vamos a crear una carpeta en la raiz de nuestro proyecto `static/`
+
+```txt
+📁.
+├──📄Cargo.lock
+├──📄Cargo.toml
+├──📄README.md
+├──📁static
+│  ├──📁css
+│  ├──📁img
+│  └──📁js
+├──📁static
+└──📁target
+```
+
+Con esto podriamos visualizar nuestros archivos estaticos.
+
+```rust
+use actix_files::NamedFile;
+use actix_web::{get, Error, HttpRequest, Result};
+use std::path::PathBuf;
+
+
+#[get("/static/{filename:.*}")]
+async fn archivos_estaticos(req: HttpRequest) -> Result<NamedFile, Error> {
+    let pbuf: PathBuf = req.match_info().query("filename").parse().unwrap();
+    let mut ruta = pbuf.into_os_string().into_string().unwrap();
+
+    ruta = format!("./static/{ruta}");
+
+    let archivo = NamedFile::open(ruta)?;
+
+    Ok(archivo.use_last_modified(true))
+}
+```
+
+Pero si queremos poder descargarlos debemos hacer una pequeña modificación:
+
+```rust
+use actix_files::NamedFile;
+use actix_web::{get, http::header::ContentDisposition, Error, HttpRequest, Result};
+use std::path::PathBuf;
+
+#[get("/static/{filename:.*}")]
+async fn archivos_estaticos(req: HttpRequest) -> Result<NamedFile, Error> {
+    let pbuf: PathBuf = req.match_info().query("filename").parse().unwrap();
+    let ruta = format!("./static/{}", pbuf.into_os_string().into_string().unwrap());
+
+    let archivo = NamedFile::open(ruta.clone())?;
+
+    Ok(archivo.set_content_disposition(ContentDisposition::attachment(ruta.clone().as_str())))
+}
+```
+
+## Bases de datos - SQLx
+
+Para entender como funciona esto, haremos una mini API que nos permitira entender como funciona `actix-web` con `sqlx`, para trbajar con SQLx debemos de instalar manualmente en nuestro `Cargo.toml` lo siguiente:
+
+```toml
+[dependencies]
+sqlx = { version = "0.8.1", features = [ "runtime-async-std", "sqlite", "macros", "migrate" ] }
+```
+
+Ahora si podemos añadir las demas dependencias de forma normal
+
+```sh
+cargo add actix-web dotenv
+```
+
+```sh
+cargo add serde -F derive
+```
+
+Adicionalmente podemos instalar el [CLI](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) que nos da sqlx:
+
+```sh
+cargo install sqlx-cli --no-default-features --features sqlite
+```
+
+Este [CLI](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) nos da facilidades al momento de crear migraciones con comandos como:
+
+```sh
+sqlx database create
+sqlx database drop
+sqlx migrate add NOMBRE_MIGRACIÓN
+sqlx migrate run
+```
+
+Ahora debemos de crear un `.env` en el que definiremos nuestra variable de entorno.
+
+```env
+DATABASE_URL=sqlite://$PWD/temp/sqlx.db
+```
+
+Corremos el comando del CLI
+
+```sh
+sqlx database create
+```
+
+```rust
+// src/main.rs
+use actix_web::{web::Data, App, HttpServer};
+use dotenv::dotenv;
+use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
+mod services;
+use services::{create_user_article, fetch_user_articles, fetch_users};
+
+pub struct AppState {
+    db: Pool<Sqlite>,
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    dotenv().ok();
+
+    let database_url = std::env::var("DATABASE_URL").expect("No se encontro DATABASE_URL");
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .expect("Error al crear la conexión a la base de dato");
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(Data::new(AppState { db: pool.clone() }))
+            .service(fetch_users)
+            .service(fetch_user_articles)
+            .service(create_user_article)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Creamos un archivo `services.rs` a la mista altura que `main.rs`
+
+```rs
+// src/services.rs
+use crate::AppState;
+use actix_web::{
+    get, post,
+    web::{Data, Json, Path},
+    HttpResponse, Responder,
+};
+use serde::{Deserialize, Serialize};
+use sqlx::{self, FromRow};
+
+#[derive(Serialize, FromRow)]
+struct User {
+    id: i32,
+    name: String,
+    last_name: String,
+}
+
+#[derive(Serialize, FromRow)]
+struct Article {
+    id: i32,
+    title: String,
+    content: String,
+    created_by: i32,
+}
+
+#[derive(Deserialize)]
+pub struct CreateArticleBody {
+    pub title: String,
+    pub content: String,
+}
+
+#[get("/users")]
+async fn fetch_users(state: Data<AppState>) -> impl Responder {
+    match sqlx::query_as::<_, User>("SELECT id, name, last_name FROM users")
+        .fetch_all(&state.db)
+        .await
+    {
+        Ok(users) => HttpResponse::Ok().json(users),
+        Err(_) => HttpResponse::NotFound().json("No users found"),
+    }
+}
+
+#[get("/users/{id}/articles")]
+async fn fetch_user_articles(path: Path<i32>, state: Data<AppState>) -> impl Responder {
+    let id: i32 = path.into_inner();
+
+    match sqlx::query_as::<_, Article>(
+        "SELECT id, title, content, created_by WHERE created_by = $1",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(articles) => HttpResponse::Ok().json(articles),
+        Err(_) => HttpResponse::NotFound().json("No articles found"),
+    }
+}
+
+#[post("/users/{id}/articles")]
+async fn create_user_article(
+    path: Path<i32>,
+    body: Json<CreateArticleBody>,
+    state: Data<AppState>,
+) -> impl Responder {
+    let id: i32 = path.into_inner();
+
+    match sqlx::query_as::<_, Article>("INSERT INTO articles (title, content, created_by) VALUES ($1, $2, $3) RETURNING id, title, content, created_by")
+        .bind(body.title.to_string())
+        .bind(body.content.to_string())
+        .bind(id)
+        .fetch_one(&state.db)
+        .await
+    {
+        Ok(article) => HttpResponse::Ok().json(article),
+        Err(_) => HttpResponse::InternalServerError().json("Failed to create user article")
+    }
+}
+```
+
+<!-- WIP -->
+
+## Seguridad en API (WIP)
