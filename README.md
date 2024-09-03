@@ -1009,11 +1009,167 @@ fn main() {
 
 Esto nos tiene que devolver la forma desencriptada de nuestro token, si es que es exitoso.
 
-#### Protegiendo endpoints con JWT y Actix
+#### Protegiendo endpoints con JWT
+
+Continuando con nuestro código anterior, vamos a agregar las importaciones necesarias para trabajar con `Actix`
+
+```rust
+use actix_web::{dev::ServiceRequest, error, get, post, web, App, Error, HttpResponse, HttpServer};
+```
+
+Ahora convertimos nuestra función `main` en asincrona
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // code ....
+}
+```
+
+Ahora, creremos una `struct` para simular el login form de nuestra app
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct LoginForm {
+    usuario: String,
+    password: String
+}
+```
+
+Tambien si el login es valido vamos a retornar un `login result`
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct LoginResult {
+    token: String,
+}
+```
+
+Ahora vamos a crear un `endpoint` de tipo `post`
+
+```rust
+#[get("/login")]
+async fn login(form: web::Form<LoginForm>) -> HttpResponse {
+    if form.usuario == "Wilovy" && form.password == "Test12345." {
+        let iss = "Rust JWT".to_owned();
+        let sub = "Prueba".to_owned();
+        let duracion_en_minutos: i64 = 5;
+        let user_id = 1;
+        let token = generar_token(iss, sub, duracion_en_minutos, user_id);
+        let respuesta = LoginResult { token };
+        HttpResponse::Ok().json(respuesta)
+    } else {
+        HttpResponse::Unauthorized().body("Login invalido")
+    }
+}
+```
+
+Ahora vamos a probarlo, tenemos que levantar nuestro servidor en nuestra función `main`
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(login))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
+
+Ahora si podemos probar nuestra ruta usando un `Form URL Encoded` y si todo sale bien nos deberia regresar algo como:
+
+![Login](./public/login.png)
+
+Y si las credenciales son incorrectas nos aparecera algo como:
+
+![LoginErr](./public/login_err.png)
+
+Ahora si, creemos una nueva ruta para protejerla con `JWT`
+
+```rust
+#[get("/privado")]
+async fn privado() -> HttpResponse {
+    HttpResponse::Ok().body("Privado")
+}
+```
+
+Ahora servimos nuestra nueva ruta dentro de nuestra app en un `scope`
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .service(web::scope("/admin").service(privado))
+            .service(login)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Ahora si intentamos acceder a la ruta `/admin/privado`, lo podremos hacer ya que aun no hacemos ningún middleware para protejerla.
+
+Antes de eso, tenemos que agregar el import necesario
+
+```rust
+use actix_web_httpauth::{extractors::bearer::BearerAuth, middleware::HttpAuthentication};
+```
+
+Y ahora si podemos hacer un validador
+
+```rust
+async fn validador(
+    req: ServiceRequest,
+    credenciales: Option<BearerAuth>,
+) -> Result<ServiceRequest, (Error, ServiceRequest)> {
+
+    let Some(credenciales) = credenciales else {
+        return Err((error::ErrorBadRequest("No se especifico el token"), req));
+    };
+
+    let token = credenciales.token();
+    let resultado = validar_token(token.to_owned());
+    match resultado {
+        Ok(_) => Ok(req),
+        Err(_) => Err((error::ErrorForbidden("No tiene acceso"), req)),
+    }
+}
+```
+
+Ahora implementamos el validador en nuestro scope donde esta la ruta que queremos proteger
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::with_fn(validador);
+
+        App::new()
+            .service(web::scope("/admin").wrap(auth).service(privado))
+            .service(login)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Ahora si iniciamos sesion en nuestro endpoint de `/login`
+
+![Login](./public/login_bearer.png)
+
+Copiamos el token que nos arroja y nos vamos a nuestra ruta `/admin/privado` y si es existoso:
+
+![Privado](./public/bearer_privado.png)
+
+Si no lo es seria algo como:
+
+![Privado err](./public/bearer_error.png)
 
 #### Implementación de Refresh token
 
 #### Roles en APIs
 
 #### Implementa control de permisos en APIs
-

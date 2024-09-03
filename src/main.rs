@@ -1,3 +1,5 @@
+use actix_web::{dev::ServiceRequest, error, get, post, web, App, Error, HttpResponse, HttpServer};
+use actix_web_httpauth::{extractors::bearer::BearerAuth, middleware::HttpAuthentication};
 use chrono::{Duration, Utc};
 use dotenv::dotenv;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -11,6 +13,17 @@ struct Claims {
     exp: usize,
     iat: usize,
     user_id: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginForm {
+    usuario: String,
+    password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginResult {
+    token: String,
 }
 
 fn get_secret_key() -> String {
@@ -54,16 +67,52 @@ fn validar_token(token: String) -> Result<Claims, jsonwebtoken::errors::Error> {
     }
 }
 
-fn main() {
-    let iss = "Rust JWT".to_owned();
-    let sub = "Prueba".to_owned();
-    let duracion_en_minutos: i64 = 5;
-    let user_id = 1;
-
-    let token = generar_token(iss, sub, duracion_en_minutos, user_id);
-    let resultado = validar_token(token);
-    match resultado {
-        Ok(claims) => println!("Los Claims son: {:?}", claims),
-        Err(e) => println!("El token es invalido: {:?}", e),
+#[post("/login")]
+async fn login(form: web::Form<LoginForm>) -> HttpResponse {
+    if form.usuario == "Wilovy" && form.password == "Test12345." {
+        let iss = "Rust JWT".to_owned();
+        let sub = "Prueba".to_owned();
+        let duracion_en_minutos: i64 = 5;
+        let user_id = 1;
+        let token = generar_token(iss, sub, duracion_en_minutos, user_id);
+        let respuesta = LoginResult { token };
+        HttpResponse::Ok().json(respuesta)
+    } else {
+        HttpResponse::Unauthorized().body("Login invalido")
     }
+}
+
+async fn validador(
+    req: ServiceRequest,
+    credenciales: Option<BearerAuth>,
+) -> Result<ServiceRequest, (Error, ServiceRequest)> {
+    let Some(credenciales) = credenciales else {
+        return Err((error::ErrorBadRequest("No se especifico el token"), req));
+    };
+
+    let token = credenciales.token();
+    let resultado = validar_token(token.to_owned());
+    match resultado {
+        Ok(_) => Ok(req),
+        Err(_) => Err((error::ErrorForbidden("No tiene acceso"), req)),
+    }
+}
+
+#[get("/privado")]
+async fn privado() -> HttpResponse {
+    HttpResponse::Ok().body("Privado")
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::with_fn(validador);
+
+        App::new()
+            .service(web::scope("/admin").wrap(auth).service(privado))
+            .service(login)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }
