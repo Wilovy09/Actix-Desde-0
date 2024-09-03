@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 actix-web = "4.9.0"
 actix-web-httpauth = "0.8.2"
+chrono = "0.4.38"
 dotenv = "0.15.0"
+jsonwebtoken = "9.3.0"
 serde = { version = "1.0.209", features = ["derive"] }
-sqlx = { version = "0.8.1", features = [ "runtime-async-std", "sqlite", "macros", "migrate" ] }
+
