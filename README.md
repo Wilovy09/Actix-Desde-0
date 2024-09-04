@@ -1170,6 +1170,215 @@ Si no lo es seria algo como:
 
 #### Implementación de Refresh token
 
+Siguendo el contenido anterior, responderemos la duda de ¿como refrescar un JWT? ya que esto es util para no tener que estarle pidiendo al usuario que vuelva a hacer login cada que se expire el token.
+
+> [!NOTE]
+> Continuaremos con el código anterior.
+
+Lo que teniamos hasta este momento es que al momento de que un usuario hace login, se le regrese un `token` en base a la `struct` que llamamos `LoginResult`, modificaremos esta `struct` para que nos regrese un `refresh`
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct LoginResulti {
+    token: String,
+    refresh: String,
+}
+```
+
+Tambien modificaremos nuestros `claims` para agregar el refresh.
+
+```rust
+
+struct Claims {
+    iss: String,
+    sub: String,
+    exp: usize,
+    iat: usize,
+    tipo: String,
+    user_id: usize,
+}
+```
+
+Ahora crearemos un nuevo endpoint para refrescar nuestros tokens, primero debemos crear su `struct`
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct RefreshResult {
+    token: String,
+}
+```
+
+Ahora hay que modificar la función de `generar_token`
+
+```rust
+// Añadimos `tipo: String` como parametro
+fn generar_token(iss: String, sub: String, duracion_en_minutos: i64, user_id: usize, tipo: String)
+
+let my_claims = Claims {
+    iss,
+    sub,
+    exp,
+    iat,
+    tipo, // Y lo pasamos a `my_claims`
+    user_id,
+};
+```
+
+Ahora en el `validador` vamos a dejar que manejar que los tokens que no sean refresh nos permitan validarlo, pero si son refresh, no permitiremos que se valide
+
+```rust
+// Solo cambiamos el `match`
+match resultado {
+    Ok(claims) => {
+        if claims.tipo != "refresh" {
+            return Ok(req);
+        }
+        Err((error::ErrorForbidden("No tiene acceso"), req))
+    },
+    Err(_) => Err((error::ErrorForbidden("No tiene acceso"), req)),
+}
+```
+
+Ahora en nuestra función `main` vamos a modificar algunas cosas ya que dan errores.
+
+1. Pasaremos el nuevo parametro que definimos
+
+```rust
+let token = generar_token(
+    iss.clone(),
+    sub.clone(),
+    duracion_en_minutos,
+    user_id,
+    "token-normal".to_owned(),
+);
+```
+
+2. Tambien hay que definir una variable para la duración de el tiempo de vida de nuestro token `refresh`
+
+```rust
+let duracion_dia: i64 = 1440;
+```
+
+3. Hay que definir el token `refresh`
+
+```rust
+let refresh = generar_token(
+    iss.clone(),
+    sub.clone(),
+    duracion_dia,
+    user_id,
+    "refresh".to_owned(),
+);
+```
+
+4. Pasamos el `refresh` en la respuesta
+
+```rust
+let respuesta = LoginResult { token, refresh };
+```
+
+Entonces el `token-normal` va a durar 5min y el `token-refresh` va a durar 1 dia, ahora hay que implementar toda la lógica de refrescamiento, ahora si creamos nuestro endpoint.
+
+```rust
+#[post("/refresh-token")]
+async fn refresh_token(refresh_jwt: Option<BearerAuth>) -> HttpResponse {
+    let Some(refresh_jwt) = refresh_jwt else {
+        return HttpResponse::Forbidden().body("Token no enviado");
+    };
+
+    let claims = validar_token(refresh_jwt.token().to_owned());
+
+    match claims {
+        Ok(c) => {
+            // Crear el nuevo token-normal
+            if c.tipo == "refresh" {
+                let iss = c.iss.to_owned();
+                let sub = c.sub.to_owned();
+                let duracion_en_minutos = 5;
+                let tipo = "token-normal".to_owned();
+                let user_id = c.user_id;
+
+                let token = generar_token(iss, sub, duracion_en_minutos, user_id, tipo);
+                let resultado: RefreshResult = RefreshResult { token };
+
+                HttpResponse::Ok().json(resultado)
+            } else {
+                HttpResponse::Unauthorized().body("")
+            }
+        }
+        Err(_) => HttpResponse::Unauthorized().body(""),
+    }
+}
+```
+
+Ahora incluimos nuestra nueva ruta a nuestra app:
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::with_fn(validador);
+
+        App::new()
+            .service(web::scope("/admin").wrap(auth).service(privado))
+            .service(login)
+            .service(refresh_token) // Fuera del scope `/admin`
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Actualizamos nuestros imports
+
+```rust
+use actix_web_httpauth::{
+    extractors::bearer::{BearerAuth, Config as BearerConfig},
+    middleware::HttpAuthentication,
+};
+```
+
+Ahora agregamos este `BearerConfig` a nuestro servidor
+
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::with_fn(validador);
+
+        App::new()
+            // Hacemos que sea la config por defecto
+            .app_data(BearerConfig::default().realm("jwt"))
+            .service(web::scope("/admin").wrap(auth).service(privado))
+            .service(login)
+            .service(refresh_token)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Corremos nuestro servidor y nos vamos a `Insomnia` para empezar a hacer pruebas.
+
+Aqui vemos que ahora cuando hacemos `login` nos regresa 2 tokens. El `token` y el `refresh`, para nuestros endpoints normales siempre usaremos el `token`.
+![Login refresh](./public/login_refresh.png)
+
+Ahora si intentamos refrescar un token viejo con el token `refresh`
+
+![Refresh token](./public/refresh_token.png)
+
+Ejemplo de un token viejo:
+
+![Token viejo](./public/token_viejo.png)
+
+Y si ahora poner el token nuevo generado con el `refresh`
+
+![New Token](./public/token_nuevo.png)
+
 #### Roles en APIs
 
 #### Implementa control de permisos en APIs
+
+### CORS
