@@ -1363,6 +1363,7 @@ async fn main() -> std::io::Result<()> {
 Corremos nuestro servidor y nos vamos a `Insomnia` para empezar a hacer pruebas.
 
 Aqui vemos que ahora cuando hacemos `login` nos regresa 2 tokens. El `token` y el `refresh`, para nuestros endpoints normales siempre usaremos el `token`.
+
 ![Login refresh](./public/login_refresh.png)
 
 Ahora si intentamos refrescar un token viejo con el token `refresh`
@@ -1378,6 +1379,182 @@ Y si ahora poner el token nuevo generado con el `refresh`
 ![New Token](./public/token_nuevo.png)
 
 #### Roles en APIs
+
+Otra duda que esta pendiente es como implementar Roles en una API, para esto usaremos un crate/paquete llamado `actix-web-grants`.
+
+> [!NOTE] > `actix-web-grants` no necesita `actix-web-httpauth` para funcionar y pero se integran muy bien juntos.
+
+Seguiremos trabajando con el código que ya tenemos hasta el momento.
+
+Importamos:
+
+```rust
+use actix_web_grants::authorities::AttachAuthorities;
+use actix_web_grants::protect;
+```
+
+Ahora creamos un nuevo endpoint
+
+```rust
+#[get("/solo-director")]
+#[protect("DIRECTOR")]
+async fn solo_director() -> HttpResponse {
+    HttpResponse::Ok().body("Información solo para directores")
+}
+
+// Y lo servimos en nuestro `scope` donde usamos el JWT
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::with_fn(validador);
+
+        App::new()
+            .app_data(BearerConfig::default().realm("jwt"))
+            .service(
+                web::scope("/admin")
+                    .wrap(auth)
+                    .service(privado)
+                    // Aqui es donde lo servimos
+                    .service(solo_director),
+            )
+            .service(login)
+            .service(refresh_token)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+`actix-web-grants` le da un nuevo metodo enfocado a roles al `ServiceRequest`.
+
+Ahora modificamos nuestra función `validador` ya que esta es la que esta actuando como middleware.
+
+```rust
+async fn validador(
+    req: ServiceRequest,
+    credenciales: Option<BearerAuth>,
+) -> Result<ServiceRequest, (Error, ServiceRequest)> {
+    let Some(credenciales) = credenciales else {
+        return Err((error::ErrorBadRequest("No se especifico el token"), req));
+    };
+
+    let token = credenciales.token();
+    let resultado = validar_token(token.to_owned());
+    match resultado {
+        Ok(claims) => {
+            if claims.tipo != "refresh" {
+                // En este caso usamos el user_id para asignarle un rol
+                if claims.user_id == 1 {
+                    req.attach(vec!["DIRECTOR".to_string()]);
+                }
+                if claims.user_id == 2 {
+                    req.attach(vec!["GERENTE".to_string()]);
+                }
+                return Ok(req);
+            }
+            Err((error::ErrorForbidden("No tiene acceso"), req))
+        }
+        Err(_) => Err((error::ErrorForbidden("No tiene acceso"), req)),
+    }
+}
+```
+
+Ahora lanzamos nuestro serviodor.
+
+1. Hacemos login.
+2. Verificamos con nuestra ruta `/admin/privado` que realmente tengamos acceso con nuestro `token`.
+3. Ahora vayamos a nuestro nuevo endpoint `/admin/solo-directores`.
+
+![Directores](./public/directores.png)
+
+Recordemos que este endpoint solo esta disponible para directores, y nosotros definimos que los usuarios con id 1 son directores. (Es el caso de nuestra cuenta recien creada con el login)
+
+Ahora cambiemos este campo a id 2 en nuestro endpoint `/login`
+
+```rust
+
+#[post("/login")]
+async fn login(form: web::Form<LoginForm>) -> HttpResponse {
+    if form.usuario == "Wilovy" && form.password == "Test12345." {
+        let iss = "Rust JWT".to_owned();
+        let sub = "Prueba".to_owned();
+        let duracion_en_minutos: i64 = 5;
+        let duracion_dia: i64 = 1440;
+        // Aqui cambiamos el id
+        let user_id = 2;
+        let token = generar_token(
+            iss.clone(),
+            sub.clone(),
+            duracion_en_minutos,
+            user_id,
+            "token-normal".to_owned(),
+        );
+        let refresh = generar_token(
+            iss.clone(),
+            sub.clone(),
+            duracion_dia,
+            user_id,
+            "refresh".to_owned(),
+        );
+
+        let respuesta = LoginResult { token, refresh };
+        HttpResponse::Ok().json(respuesta)
+    } else {
+        HttpResponse::Unauthorized().body("Login invalido")
+    }
+}
+```
+
+Volvemos a hacer un login otra vez y repetimos los pasos anteriores enumerados.
+
+![GERENTES](./public/gerentes.png)
+
+Como podemos ver, como nosotros definimos que los usuarios con id 2 son `gerentes` pero nuestro endpoint `/admin/solo-director` tiene el macro `#[protect("DIRECTOR")]` no nos da el acceso a este endpoint.
+
+Pero, y si ahora queremos tener un endpoint que tenga más de un rol de acceso a nuestro endpoint, creemos uno nuevo.
+
+```rust
+#[get("/solo-supervisores")]
+#[protect(any("DIRECTOR", "GERENTE"))]
+async fn solo_supervisores() -> HttpResponse {
+    HttpResponse::Ok().body("Información solo para supervisores")
+}
+// Y lo servimos
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let auth = HttpAuthentication::with_fn(validador);
+
+        App::new()
+            .app_data(BearerConfig::default().realm("jwt"))
+            .service(
+                web::scope("/admin")
+                    .wrap(auth)
+                    .service(privado)
+                    .service(solo_director)
+                    // Aqui lo servimos
+                    .service(solo_supervisores)
+            )
+            .service(login)
+            .service(refresh_token)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
+
+Ahora si probemos nuestro nuevo endpoint.
+
+1. Hacemos login
+2. Probamos nuestro `token` en el endpoint `/admin/solo-director` y nos deberia dar error ya que tenemos el rol `GERENTE`
+3. Ahora probamos en el nuevo endpoint `/admin/solo-supervisores` y deberiamos tener acceso.
+
+![Supervisores](./public/supervisores.png)
+
+> [!NOTE]
+> Podemos cambiar el `user_id` a 1 para que nos de el rol `DIRECTOR` y chequear el endpoint nuevo.
 
 #### Implementa control de permisos en APIs
 

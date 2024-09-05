@@ -3,6 +3,8 @@ use actix_web::{
     error::{self},
     get, post, web, App, Error, HttpResponse, HttpServer,
 };
+use actix_web_grants::authorities::AttachAuthorities;
+use actix_web_grants::protect;
 use actix_web_httpauth::{
     extractors::bearer::{BearerAuth, Config as BearerConfig},
     middleware::HttpAuthentication,
@@ -101,6 +103,12 @@ async fn validador(
     match resultado {
         Ok(claims) => {
             if claims.tipo != "refresh" {
+                if claims.user_id == 1 {
+                    req.attach(vec!["DIRECTOR".to_string()]);
+                }
+                if claims.user_id == 2 {
+                    req.attach(vec!["GERENTE".to_string()]);
+                }
                 return Ok(req);
             }
             Err((error::ErrorForbidden("No tiene acceso"), req))
@@ -116,7 +124,7 @@ async fn login(form: web::Form<LoginForm>) -> HttpResponse {
         let sub = "Prueba".to_owned();
         let duracion_en_minutos: i64 = 5;
         let duracion_dia: i64 = 1440;
-        let user_id = 1;
+        let user_id = 2;
         let token = generar_token(
             iss.clone(),
             sub.clone(),
@@ -173,6 +181,18 @@ async fn refresh_token(refresh_jwt: Option<BearerAuth>) -> HttpResponse {
 async fn privado() -> HttpResponse {
     HttpResponse::Ok().body("Privado")
 }
+
+#[get("/solo-director")]
+#[protect("DIRECTOR")]
+async fn solo_director() -> HttpResponse {
+    HttpResponse::Ok().body("Información solo para directores")
+}
+
+#[get("/solo-supervisores")]
+#[protect(any("DIRECTOR", "GERENTE"))]
+async fn solo_supervisores() -> HttpResponse {
+    HttpResponse::Ok().body("Información solo para supervisores")
+}
 // -------------------------------------------------------------------------------
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -181,7 +201,13 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(BearerConfig::default().realm("jwt"))
-            .service(web::scope("/admin").wrap(auth).service(privado))
+            .service(
+                web::scope("/admin")
+                    .wrap(auth)
+                    .service(privado)
+                    .service(solo_director)
+                    .service(solo_supervisores)
+            )
             .service(login)
             .service(refresh_token)
     })
