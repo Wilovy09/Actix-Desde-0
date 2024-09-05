@@ -104,10 +104,10 @@ async fn validador(
         Ok(claims) => {
             if claims.tipo != "refresh" {
                 if claims.user_id == 1 {
-                    req.attach(vec!["DIRECTOR".to_string()]);
+                    req.attach(vec!["DIRECTOR".to_string(), "LOG_IN".to_string()]);
                 }
                 if claims.user_id == 2 {
-                    req.attach(vec!["GERENTE".to_string()]);
+                    req.attach(vec!["GERENTE".to_string(), "LOG_IN".to_string()]);
                 }
                 return Ok(req);
             }
@@ -193,6 +193,28 @@ async fn solo_director() -> HttpResponse {
 async fn solo_supervisores() -> HttpResponse {
     HttpResponse::Ok().body("Información solo para supervisores")
 }
+
+fn id_igual_claim(path_param: web::Path<usize>, credenciales: Option<BearerAuth>) -> bool {
+    let Some(credenciales) = credenciales else {
+        return false;
+    };
+    let user_id = path_param.into_inner();
+    let token = credenciales.token();
+    let resultado = validar_token(token.to_owned());
+    match resultado {
+        Ok(claims) => claims.user_id == user_id,
+        Err(_) => false,
+    }
+}
+
+#[get("/inforamcion-personal/{user_id}")]
+#[protect("LOG_IN", expr = "id_igual_claim(path_param, credenciales)")]
+async fn info_personal(
+    path_param: web::Path<usize>,
+    credenciales: Option<BearerAuth>,
+) -> HttpResponse {
+    HttpResponse::Ok().body("Tu info personal")
+}
 // -------------------------------------------------------------------------------
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -207,6 +229,7 @@ async fn main() -> std::io::Result<()> {
                     .service(privado)
                     .service(solo_director)
                     .service(solo_supervisores)
+                    .service(info_personal),
             )
             .service(login)
             .service(refresh_token)

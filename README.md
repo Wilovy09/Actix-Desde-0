@@ -1558,4 +1558,144 @@ Ahora si probemos nuestro nuevo endpoint.
 
 #### Implementa control de permisos en APIs
 
+> [!NOTE]
+> Seguiremos con el código que tenemos hasta ahorita.
+
+Crearemos un nuevo endpoint solo para que el usuario logeado pueda ver su info personal y la servimos.
+
+```rust
+#[get("/inforamcion-personal/{user_id}")]
+#[protect("LOG_IN")]
+async fn info_personal(path_param: web::Path<usize>, credenciales: Option<BearerAuth>) -> HttpResponse {
+    HttpResponse::Ok().body("Tu info personal")
+}
+```
+
+Ahora en nuestro `middleware` (`fn validador`)
+
+```rust
+async fn validador(
+    req: ServiceRequest,
+    credenciales: Option<BearerAuth>,
+) -> Result<ServiceRequest, (Error, ServiceRequest)> {
+    let Some(credenciales) = credenciales else {
+        return Err((error::ErrorBadRequest("No se especifico el token"), req));
+    };
+
+    let token = credenciales.token();
+    let resultado = validar_token(token.to_owned());
+    match resultado {
+        Ok(claims) => {
+            if claims.tipo != "refresh" {
+                if claims.user_id == 1 {
+                    // Les pasamos un nuevo `rol` llamado `LOG_IN`
+                    req.attach(vec!["DIRECTOR".to_string(), "LOG_IN".to_string()]);
+                }
+                if claims.user_id == 2 {
+                    req.attach(vec!["GERENTE".to_string(), "LOG_IN".to_string()]);
+                }
+                return Ok(req);
+            }
+            Err((error::ErrorForbidden("No tiene acceso"), req))
+        }
+        Err(_) => Err((error::ErrorForbidden("No tiene acceso"), req)),
+    }
+}
+```
+
+Ahora lo que tenemos que hacer es que cuando se ingrese a la ruta `/información-personal` el usuario con id 1 solo pueda ver la información personal del usuario con id 1.
+
+Para lograr esto en el macro `protect` podemos pasar un parametro mas llamado `expr` que hace referencia a expresión.
+
+Este parametro tiene que devolver un booleano, si se cumple el rol y el `expr` deja acceder a la ruta, si no, la bloquea.
+
+`EXPR` admite:
+
+- Comparaciónes en linea: `1 == 1`
+- Funciones que regresaen booleanos
+
+Entonces con esta info nueva crearemos una función nueva para comparar el id del path param y el id de las credenciales.
+
+```rust
+fn id_igual_claim(path_param: web::Path<usize>, credenciales: Option<BearerAuth>) -> bool {
+    let Some(credenciales) = credenciales else {
+        return false;
+    };
+    let user_id = path_param.into_inner();
+    let token = credenciales.token();
+    let resultado = validar_token(token.to_owned());
+    match resultado {
+        Ok(claims) => claims.user_id == user_id,
+        Err(_) => false,
+    }
+}
+```
+
+Y ahora haremos que nuestro endpoint reciba este `expr`
+
+```rust
+#[get("/inforamcion-personal/{user_id}")]
+#[protect("LOG_IN", expr = "id_igual_claim(path_param, credenciales)")]
+async fn info_personal(
+    path_param: web::Path<usize>,
+    credenciales: Option<BearerAuth>,
+) -> HttpResponse {
+    HttpResponse::Ok().body("Tu info personal")
+}
+```
+
+Ahora podemos probar nuestro nuevo endpoint.
+
+![Permiso valido](./public/valido_permiso.png)
+
+Y ahora si pasamos un path param que no es nuestro id
+
+![Error permiso](./public/error_permiso.png)
+
 ### CORS
+
+```shell
+cargo add actix-cors
+```
+
+> [!NOTE]
+> Código sacado de la documentación [actix-cors](https://crates.io/crates/actix-cors)
+
+```rust
+use actix_cors::Cors;
+use actix_web::{get, http, web, App, HttpRequest, HttpResponse, HttpServer};
+
+#[get("/index.html")]
+async fn index(req: HttpRequest) -> &'static str {
+    "<p>Hello World!</p>"
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        let cors = Cors::default()
+            .allowed_origin("https://www.rust-lang.org")
+            .allowed_origin_fn(|origin, _req_head| {
+                origin.as_bytes().ends_with(b".rust-lang.org")
+            })
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
+            .allowed_header(http::header::CONTENT_TYPE)
+            .max_age(3600);
+
+        App::new()
+            .wrap(cors)
+            .service(index)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await;
+
+    Ok(())
+}
+```
+
+---
+
+04-Sep-2024|17 videos [Playlist de donde se saco toda la info de estas notas](https://www.youtube.com/playlist?list=PLysg0qAvNg48YN4R-MZo3pXsuUjtAtPTV)
+
