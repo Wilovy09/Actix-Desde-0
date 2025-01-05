@@ -1,10 +1,39 @@
 # Notas Actix
 
+Estas son mis notas que fui haciendo mientras aprendia Actix para el desarrollo de APIs en Rust.
+
+Puede que el código que encuentres aqui no sea de la mejor calidad pero fue la forma en la que aprendi a hacer las cosas al inicio.
+
+## Indice
+
+- [Como leer variables de entorno](#como-leer-variables-de-un-env)
+- [Estructura básica para iniciar una API](#estructura-básica-para-iniciar-una-api)
+- [Parametros con struct](#parametros-con-struct)
+- [Procesar JSONS](#procesar-jsons)
+- [URL Encoded forms](#url-encoded-forms)
+- [Responder con JSONs](#responder-con-jsons)
+- [Subir archivos](#subir-archivos)
+  - [Un solo archivo](#un-solo-archivo)
+  - [Subir mayor información](#subir-mayor-información-no-solo-un-archivo)
+  - [Aumentar el espacio en memoria](#aumentar-el-espacio-en-memoria)
+- [Archivos estáticos y descargar archivos](#archivos-estáticos-y-descargar-archivos)
+- [Bases de datos - SQLx](#bases-de-datos---sqlx)
+- [Seguridad en API](#seguridad-en-api)
+  - [Basic Auth](#basic-auth)
+  - [JWT](#jwt)
+    - [Instalación y configuración](#instalación-y-configuracin)
+    - [Protegiendo endpoints con JWT](#protegiendo-endpoints-con-jwt)
+    - [Implementación de Refresh token](#implementación-de-refresh-token)
+    - [Roles en APIs](#roles-en-apis)
+    - [Implementa control de permisos en APIs](#implementa-control-de-permisos-en-apis)
+- [CORS](#cors)
+- [LOGS](#logs)
+
 ## Como leer variables de un `.env`
 
 Instalamos un paquete `dotenv`
 
-```sh
+```bash
 cargo add dotenv
 ```
 
@@ -33,7 +62,7 @@ fn main() {
 
 ## Estructura básica para iniciar una API
 
-```sh
+```bash
 cargo install cargo-watch
 ```
 
@@ -62,7 +91,7 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
-```sh
+```bash
 cargo watch -x run
 ```
 
@@ -257,7 +286,7 @@ Para lograr esto tenemos que agregar a nuestro formulario de html el atributo `e
 <form action="subir-archivo" method="post" enctype="multipart/form-data"></form>
 ```
 
-```sh
+```bash
 cargo add actix-multipart
 cargo add futures-util
 ```
@@ -374,7 +403,7 @@ async fn main() -> std::io::Result<()> {
 
 Pra poder trabajar con archivos estaticos tenemos que instalar un paquete.
 
-```sh
+```bash
 cargo add actix-files
 ```
 
@@ -443,23 +472,23 @@ sqlx = { version = "0.8.1", features = [ "runtime-async-std", "sqlite", "macros"
 
 Ahora si podemos añadir las demas dependencias de forma normal
 
-```sh
+```bash
 cargo add actix-web dotenv
 ```
 
-```sh
+```bash
 cargo add serde -F derive
 ```
 
 Adicionalmente podemos instalar el [CLI](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) que nos da sqlx:
 
-```sh
+```bash
 cargo install sqlx-cli --no-default-features --features sqlite
 ```
 
 Este [CLI](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md) nos da facilidades al momento de crear migraciones con comandos como:
 
-```sh
+```bash
 sqlx database create
 sqlx database drop
 sqlx migrate add NOMBRE_MIGRACIÓN
@@ -474,7 +503,7 @@ DATABASE_URL=sqlite://$PWD/temp/sqlx.db
 
 Corremos el comando del CLI
 
-```sh
+```bash
 sqlx database create
 ```
 
@@ -620,7 +649,7 @@ async fn create_user_article(
 
 Una vez tengamos esto, tenemos que darle las tablas a nuestra base de datos, esto lo hacemos creando las migraciones:
 
-```sh
+```bash
 sqlx migrate add create_users_table
 sqlx migrate add create_articles_table
 ```
@@ -649,7 +678,7 @@ CREATE TABLE articles (
 
 Luego de ya tener nuestras migraciones listas, hay que ejecutarlas:
 
-```sh
+```bash
 sqlx migrate run
 ```
 
@@ -657,7 +686,7 @@ Ahora si podemos usar nuestro HttpCient para empezar a probar nuestra API.
 
 ## Seguridad en API
 
-```sh
+```bash
 cargo add actix-web
 ```
 
@@ -666,7 +695,7 @@ cargo add actix-web
 > [!WARNING]
 > Esta forma de autenticar, no es recomendada para producción.
 
-```sh
+```bash
 cargo add actix-web-httpauth
 ```
 
@@ -865,7 +894,7 @@ async fn main() -> std::io::Result<()> {
 
 Para poder trabajar con `JWT` tenemos que instalar un paquete adicional llamado `jsonwebtoken` y este nos facilita la cración de los `JWT`
 
-```sh
+```bash
 cargo add jsonwebtoken actix-web actix-web-httpauth chrono dotenv
 cargo add serde --features=derive
 ```
@@ -960,7 +989,7 @@ fn main() {
 
 Ahora ejecutamos el programa
 
-```sh
+```bash
 cargo run
 ```
 
@@ -1652,9 +1681,9 @@ Y ahora si pasamos un path param que no es nuestro id
 
 ![Error permiso](./public/error_permiso.png)
 
-### CORS
+## CORS
 
-```shell
+```bash
 cargo add actix-cors
 ```
 
@@ -1720,10 +1749,82 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
-> [!NOTE]
-> [Aqui hay otro ejemplo de CORS en Actix](https://crates.io/crates/actix-cors)
+> [!NOTE] > [Aqui hay otro ejemplo de CORS en Actix](https://crates.io/crates/actix-cors)
+
+## LOGS
+
+Los logs son una parte muy importante para nuestra aplicación web ya que estos nos ofrecen información de que esta ocurriendo con nuestra app.
+
+Para poder integrar esto con nuestra API debemos instalar 2 crates
+
+- [tracing](https://crates.io/crates/tracing)
+- [tracing-subscriber](https://crates.io/crates/tracing-subscriber)
+
+Esto lo logramos haciendolo de la siguiente forma:
+
+```bash
+cargo add tracing
+cargo add tracing-subscriber -F env-filter
+```
+
+```rust
+// Importamos el middleware Logger que actix nos da
+use actix_web::{get, middleware::Logger, web, App, HttpResponse, HttpServer};
+use serde::Serialize;
+
+// Importamos lo que necesitamos de tracing y tracing_subscriber
+use tracing::info;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+#[derive(Serialize)]
+struct Message {
+    message: String,
+}
+
+#[get("/")]
+async fn hc() -> HttpResponse {
+    // Mandamos un log
+    info!("Received request to /");
+
+    HttpResponse::Ok().json(Message {
+        message: "Ok!".to_string(),
+    })
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Iniciamos el subscriber
+    tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .with(fmt::layer().compact())
+        .init();
+
+    let host = "0.0.0.0";
+    let port = 8080;
+
+    HttpServer::new(|| App::new()
+        // Wrapeamos el logger a nuestra api
+        .wrap(Logger::default())
+            // Servimos nuestras rutas
+            .service(hc)
+        )
+        .bind((host, port))?
+        .run()
+        .await
+}
+```
+
+Ejemplo de los logs que hemos generado:
+
+```bash
+2025-01-05T09:26:51.064157Z  INFO actix_server::builder: starting 4 workers
+2025-01-05T09:26:51.064357Z  INFO actix_server::server: Actix runtime found; starting in Actix runtime
+2025-01-05T09:26:51.064463Z  INFO actix_server::server: starting service: "actix-web-service-0.0.0.0:8080", workers: 4, listening on: 0.0.0.0:8080
+2025-01-05T09:26:51.291252Z  INFO DockerAPI: Received request to /
+2025-01-05T09:26:51.291496Z  INFO actix_web::middleware::logger: 127.0.0.1 "GET / HTTP/1.1" 200 17 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" 0.000433
+```
 
 ---
 
-04-Sep-2024|17 videos [Playlist de donde se saco toda la info de estas notas](https://www.youtube.com/playlist?list=PLysg0qAvNg48YN4R-MZo3pXsuUjtAtPTV)
+[Playlist de donde se saco la mayoria de la info de estas notas](https://www.youtube.com/playlist?list=PLysg0qAvNg48YN4R-MZo3pXsuUjtAtPTV)
 
