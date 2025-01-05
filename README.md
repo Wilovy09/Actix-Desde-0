@@ -29,6 +29,8 @@ Puede que el código que encuentres aqui no sea de la mejor calidad pero fue la 
 - [CORS](#cors)
 - [LOGS](#logs)
 
+* [ ] Validar los datos que nos envian, no solo el tipo con el crate [validator](https://crates.io/crates/validator)
+
 ## Como leer variables de un `.env`
 
 Instalamos un paquete `dotenv`
