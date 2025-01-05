@@ -30,6 +30,7 @@ Puede que el código que encuentres aqui no sea de la mejor calidad pero fue la 
 - [LOGS](#logs)
 
 * [ ] Validar los datos que nos envian, no solo el tipo con el crate [validator](https://crates.io/crates/validator)
+* [ ] Enviar correos de recuperación de contraseña, validar el correo, etc... con el crate [lettre](https://crates.io/crates/lettre)
 
 ## Como leer variables de un `.env`
 
